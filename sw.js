@@ -1,5 +1,5 @@
 // Service Worker：离线缓存。每次发布新版本，把 VERSION 改一下即可让 iPad 更新。
-const VERSION = 'v1.2.0';
+const VERSION = 'v1.3.1';
 const CACHE = 'study-streak-' + VERSION;
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',

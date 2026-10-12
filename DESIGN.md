@@ -1,4 +1,4 @@
-# Study Streak 学习打卡 — 设计规格 v1.2
+# Study Streak 学习打卡 — 设计规格 v1.3
 
 给 12 岁孩子用的英语学习计时打卡工具。iPad 优先，同时适配 iPhone / Mac。
 
@@ -38,6 +38,10 @@ makeups[]   date(被补签的日子), usedAt
 reflections {date: 每日总结文字}
 words[]     id, word, phon, meaning, date, subjectId, sessionId, mastered, createdAt
 active      进行中的计时 {subjectId, start, pauses[], reminded…}（关 App 不丢）
+plays[]     玩的记录 {id, cat, date, start, end, minutes, guess|null, note}（与 sessions 完全分开）
+playCats[]  玩的类别 {id, ci(颜色序号), emoji, name{en,zh}, hidden}；默认：电脑游戏 / iPad 娱乐 / 玩手机·刷短视频
+playActive  进行中的“玩” {cat, start}（不显示时间，关 App 不丢）
+settings    另有 playHideClock=true, studyGuess=false, guessMinSessions=5
 ```
 每日汇总、连续天数、补签卡数量都**不存储**，每次由 sessions + makeups 重新计算。
 
@@ -79,4 +83,15 @@ active      进行中的计时 {subjectId, start, pauses[], reminded…}（关 A
 ## 8. 测试
 
 - `tests/logic.test.mjs`：打卡、休息日、补签卡等规则的单元测试。
-- `tests/e2e.py`：浏览器自动化测试，在 iPad 竖屏、iPad 横屏、iPhone、深色模式下各模拟一遍完整操作（共 196 项检查）。
+- `tests/e2e.py`：浏览器自动化测试，在 iPad 竖屏、iPad 横屏、iPhone、深色模式下各模拟一遍完整操作（共 360 项检查）。
+
+## 9. “玩”：时间感练习（v1.3）
+
+目的只有一个：让孩子逐渐有时间概念。**不和学习互换，没有额度、限制、奖励**，不进打卡和连续天数。
+
+- 今天页有“玩一会儿 / 开始玩”：选类别 → 全屏平静界面，**不显示时间**（设置可改成显示）。
+- 点“结束”→ **先猜**玩了多久（−5/+5 或 15/30/45/60/90/120 快捷）→ **揭晓**：猜测与实际两根按比例的条 + 中性文字（“比你感觉的多了 12 分钟”，不用“超时”之类），可写“玩了什么”。
+- 猜满 5 次后才显示趋势（“平均少估了 x%”），避免个别误差让孩子泄气。
+- 柱状图：今天页和统计页都有“学习 | 玩”切换；玩的图按类别堆叠，只有“平均线”，没有打卡/目标线。统计页有“学习 vs 玩”并排比较和“时间感小实验”（猜 vs 实际）。
+- 设置：玩的时候隐藏计时（默认开）、学习结束时也猜一猜（默认关）、玩的类别（可加、可隐藏）。
+- 限制：iPad 顶部系统时钟无法隐藏；玩电脑游戏时要在 iPad 上点开始/结束；玩的记录不支持补录（补录没有“盲猜”意义），可删除。
