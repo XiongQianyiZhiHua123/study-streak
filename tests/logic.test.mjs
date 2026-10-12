@@ -79,3 +79,46 @@ test('makeup window: only last 3 days, only with cards', () => {
 });
 
 console.log(`\n${ok} tests passed`);
+
+// ---------- 玩（时间感练习）----------
+import { playTotalsByDay, guessBias, guessed, senseSummary } from '../js/logic.js';
+const play = (date, cat, minutes, guess = null, start = 0) => ({ date, cat, minutes, guess, start });
+
+test('play totals by day and category', () => {
+  const r = playTotalsByDay([play('2026-10-01', 'pc', 40), play('2026-10-01', 'ipad', 20), play('2026-10-02', 'pc', 30)]);
+  assert.equal(r['2026-10-01'].total, 60);
+  assert.equal(r['2026-10-01'].byCat.pc, 40);
+  assert.equal(r['2026-10-01'].count, 2);
+  assert.equal(r['2026-10-02'].total, 30);
+});
+
+test('play records never affect the study streak', () => {
+  // computeStreak 只看 sessions，玩的记录在 plays 里，根本传不进去
+  const r = run([sess('2026-09-28', 30)], '2026-09-28');
+  assert.equal(r.current, 1);
+});
+
+test('guess bias: negative means underestimated', () => {
+  assert.equal(guessBias(40, 50), -0.2);
+  assert.equal(guessBias(60, 50), 0.2);
+  assert.equal(guessBias(10, 0), 0);
+});
+
+test('senseSummary needs enough guesses before it is ready', () => {
+  const recs = [play('a', 'pc', 50, 40, 1), play('a', 'pc', 100, 80, 2), play('a', 'pc', 10, null, 3), play('a', 'pc', 20, 10, 4)];
+  assert.equal(guessed(recs).length, 3);                    // 没猜的不算
+  const s3 = senseSummary(recs, 5);
+  assert.equal(s3.n, 3);
+  assert.equal(s3.ready, false);
+  const more = [...recs, play('a', 'pc', 50, 50, 5), play('a', 'pc', 30, 30, 6)];
+  const s5 = senseSummary(more, 5);
+  assert.equal(s5.n, 5);
+  assert.equal(s5.ready, true);
+  assert.ok(s5.avg < 0 && s5.avg > -0.5);                   // 平均少估
+});
+
+test('senseSummary takes only the most recent N', () => {
+  const recs = [];
+  for (let i = 1; i <= 10; i++) recs.push(play('a', 'pc', 100, i <= 5 ? 50 : 100, i)); // 早 5 次少估，近 5 次全对
+  assert.equal(senseSummary(recs, 5, 5).avg, 0);
+});
