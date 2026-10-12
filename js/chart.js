@@ -17,12 +17,13 @@ function topRounded(x, y, w, h, r) {
  */
 export function drawBarChart(el, opts) {
   const { days, skills, checkin, goal, labels, fmt } = opts;
+  const col = opts.color || ((id) => `var(--skill-${id})`);
   const W = Math.max(280, el.clientWidth || 600);
   const H = opts.height || 260;
   const m = { l: 34, r: 12, t: 16, b: 34 };
   const pw = W - m.l - m.r, ph = H - m.t - m.b;
 
-  const maxV = Math.max(goal * 1.15, ...days.map((d) => d.total * 1.08), 30);
+  const maxV = Math.max((goal || 0) * 1.15, ...days.map((d) => d.total * 1.08), 30);
   const step = maxV > 240 ? 60 : 30;
   const yMax = Math.ceil(maxV / step) * step;
   const y = (v) => m.t + ph - (v / yMax) * ph;
@@ -54,8 +55,8 @@ export function drawBarChart(el, opts) {
       const h = Math.max(0, y0 - y1 - (j > 0 ? 2 : 0)); // 段间 2px 间隙
       if (h <= 0) return;
       g += isTop
-        ? `<path class="c-bar" style="fill:var(--skill-${s.id})" d="${topRounded(x, y1, bw, h, 4)}"/>`
-        : `<rect class="c-bar" style="fill:var(--skill-${s.id})" x="${x}" y="${y1}" width="${bw}" height="${h}"/>`;
+        ? `<path class="c-bar" style="fill:${col(s.id)}" d="${topRounded(x, y1, bw, h, 4)}"/>`
+        : `<rect class="c-bar" style="fill:${col(s.id)}" x="${x}" y="${y1}" width="${bw}" height="${h}"/>`;
     });
     if (i % labelEvery === 0 || i === n - 1) {
       g += `<text class="c-axis${d.isToday ? ' c-today' : ''}" x="${m.l + i * slot + slot / 2}" y="${H - m.b + 16}" text-anchor="middle">${esc(d.label)}</text>`;
@@ -66,8 +67,14 @@ export function drawBarChart(el, opts) {
   const ref = (v, cls, text) =>
     `<line class="${cls}" x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/>` +
     `<text class="c-ref-label" x="${W - m.r - 2}" y="${y(v) - 5}" text-anchor="end">${esc(text)} ${v}</text>`;
-  g += ref(checkin, 'c-line-checkin', labels.checkin);
-  g += ref(goal, 'c-line-goal', labels.goal);
+  if (!opts.hideRefs) {
+    g += ref(checkin, 'c-line-checkin', labels.checkin);
+    g += ref(goal, 'c-line-goal', labels.goal);
+  }
+  if (opts.avg) {
+    g += `<line class="c-line-avg" x1="${m.l}" x2="${W - m.r}" y1="${y(opts.avg.value)}" y2="${y(opts.avg.value)}"/>` +
+         `<text class="c-avg-label" x="${m.l + 2}" y="${y(opts.avg.value) - 5}">${esc(opts.avg.label)}</text>`;
+  }
   // 基线
   g += `<line class="c-base" x1="${m.l}" x2="${W - m.r}" y1="${y(0)}" y2="${y(0)}"/>`;
   // 点击/悬停热区（比柱子大）
@@ -82,9 +89,9 @@ export function drawBarChart(el, opts) {
   const show = (i) => {
     const d = days[i];
     const rows = skills.filter((s) => d.bySkill[s.id]).map((s) =>
-      `<div class="tip-row"><span class="sw" style="background:var(--skill-${s.id})"></span>${esc(s.name)}<b>${fmt(d.bySkill[s.id])}</b></div>`).join('');
+      `<div class="tip-row"><span class="sw" style="background:${col(s.id)}"></span>${esc(s.name)}<b>${fmt(d.bySkill[s.id])}</b></div>`).join('');
     tip.innerHTML = `<div class="tip-head">${esc(d.tip)}</div><div class="tip-total">${fmt(d.total)}</div>${rows}
-      <button type="button" class="tip-btn" data-action="day" data-date="${d.key}">${esc(labels.view)} ›</button>`;
+      ${opts.noView ? '' : `<button type="button" class="tip-btn" data-action="day" data-date="${d.key}">${esc(labels.view)} ›</button>`}`;
     tip.hidden = false;
     // 放在柱子旁边而不是上方，避免挡住被点的柱子
     const x0 = m.l + i * slot, x1 = x0 + slot;

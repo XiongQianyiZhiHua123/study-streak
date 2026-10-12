@@ -2,7 +2,7 @@
 //  config.js — 默认规则与学习项目。改规则/项目优先改这里。
 // ============================================================
 
-export const APP_VERSION = '1.2.0';
+export const APP_VERSION = '1.3.1';
 
 export const DEFAULT_SETTINGS = {
   lang: 'zh',               // 'zh' | 'en'
@@ -18,6 +18,9 @@ export const DEFAULT_SETTINGS = {
   lastBackup: null,
   theme: 'auto',            // 'auto' 跟随系统 | 'light' | 'dark'
   palette: 'sky',           // 见下方 PALETTES
+  playHideClock: true,      // 玩的时候不显示计时
+  studyGuess: false,        // 学习结束时也先猜时长
+  guessMinSessions: 5,      // 猜满几次后才显示“平均少估/多估”趋势
 };
 
 // 配色方案（色卡）：每套都有浅色和深色两组颜色。
@@ -65,3 +68,11 @@ export const DEFAULT_SUBJECTS = [
   { id: 'review',      skill: 'vocab',  emoji: '🃏', name: { en: 'Word Review', zh: '复习单词卡' } },
   { id: 'other',       skill: 'other',  emoji: '⭐', name: { en: 'Other', zh: '其他' } },
 ];
+
+// 玩的类别（只用来培养时间感，不和学习互换）。ci = 颜色序号，对应 css 的 --play-<ci>，一旦分配不要改。
+export const DEFAULT_PLAY_CATS = [
+  { id: 'pc',    ci: 0, emoji: '🎮', name: { en: 'PC games', zh: '电脑游戏' } },
+  { id: 'ipad',  ci: 1, emoji: '📱', name: { en: 'iPad fun', zh: 'iPad 娱乐' } },
+  { id: 'phone', ci: 2, emoji: '📲', name: { en: 'Phone / short videos', zh: '玩手机 / 刷短视频' } },
+];
+export const PLAY_COLORS = 6;

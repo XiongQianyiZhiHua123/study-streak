@@ -1,7 +1,7 @@
 // ============================================================
 //  store.js — 存储接口。界面只调用这里，以后换存储方式只改这个文件。
 // ============================================================
-import { DEFAULT_SETTINGS, DEFAULT_SUBJECTS } from './config.js';
+import { DEFAULT_SETTINGS, DEFAULT_SUBJECTS, DEFAULT_PLAY_CATS } from './config.js';
 
 const KEY = 'studyStreak.data';
 const SCHEMA = 1;
@@ -18,7 +18,10 @@ function fresh() {
     makeups: [],
     reflections: {},
     words: [],
+    plays: [],
+    playCats: clone(DEFAULT_PLAY_CATS),
     active: null,
+    playActive: null,
     createdAt: Date.now(),
   };
 }
@@ -30,7 +33,11 @@ function migrate(d) {
   if (!Array.isArray(d.subjects) || !d.subjects.length) d.subjects = clone(DEFAULT_SUBJECTS);
   for (const k of ['sessions', 'makeups', 'words']) if (!Array.isArray(d[k])) d[k] = [];
   if (!d.reflections || typeof d.reflections !== 'object') d.reflections = {};
+  if (!Array.isArray(d.plays)) d.plays = [];
+  if (!Array.isArray(d.playCats) || !d.playCats.length) d.playCats = clone(DEFAULT_PLAY_CATS);
+  else for (const c of clone(DEFAULT_PLAY_CATS)) if (!d.playCats.some((x) => x.id === c.id)) d.playCats.push(c); // 新版本新增的默认类别补上
   if (d.active === undefined) d.active = null;
+  if (d.playActive === undefined) d.playActive = null;
   d.schema = SCHEMA;
   return d;
 }

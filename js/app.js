@@ -1,12 +1,13 @@
 // ============================================================
 //  app.js — 页面与交互
 // ============================================================
-import { APP_VERSION, SKILLS, PALETTES, PALETTE_KEYS } from './config.js';
+import { APP_VERSION, SKILLS, PALETTES, PALETTE_KEYS, PLAY_COLORS } from './config.js';
 import { store, uid } from './store.js';
 import { t, setLang, getLang, fmtMin, fmtDate, fmtMonth } from './i18n.js';
 import {
   dayKey, addDays, keyToDate, activeNetMs, isPaused, pausedMs,
   computeStreak, makeupCandidates, daysToNextCard, lastNDays,
+  playTotalsByDay, guessBias, guessed, senseSummary,
 } from './logic.js';
 import { lookup, loadDict, speak } from './dict.js';
 import { drawBarChart } from './chart.js';
@@ -23,7 +24,7 @@ const clampInt = (v, lo, hi, dflt) => { const n = parseInt(v, 10); return Number
 
 const ui = {
   tab: 'today', range: 7, calMonth: null, wordFilter: 'all', wordQuery: '',
-  timerOpen: true, lastDay: null, pending: null, flash: null, dayOpen: null,
+  timerOpen: true, chartKind: 'study', statsKind: 'study', guess: null, lastDay: null, pending: null, flash: null, dayOpen: null,
 };
 
 function subj(id) {
@@ -31,6 +32,14 @@ function subj(id) {
 }
 const sName = (s) => s.name[getLang()] || s.name.zh || s.name.en || '';
 const skillName = (id) => t('skill.' + id);
+
+// ---- 玩：类别与颜色 ----
+const catOf = (id) => D().playCats.find((c) => c.id === id) || { id, ci: 3, emoji: '🎲', name: { en: id, zh: id } };
+const catName = (c) => c.name[getLang()] || c.name.zh || c.name.en || '';
+const catVar = (c) => `var(--play-${(c.ci ?? 3) % PLAY_COLORS})`;
+const catColor = (id) => catVar(catOf(id));
+const visCats = () => D().playCats.filter((c) => !c.hidden);
+const playMinutesOn = (k) => D().plays.filter((p) => p.date === k).reduce((a, p) => a + p.minutes, 0);
 const streak = () => computeStreak({ sessions: D().sessions, subjects: D().subjects, makeups: D().makeups, settings: S(), today: today() });
 const save = () => { if (!store.save()) toast('⚠️ Save failed'); };
 
@@ -152,19 +161,53 @@ function viewToday() {
   </section>
   ${makeup}${backup}
   ${startBtn}
+  ${playRowHTML(k)}
   </div><div class="col">
   <section class="card">
     <div class="card-head"><h2>${t('today.week')}</h2>
       <button class="link-btn" data-action="tab" data-tab="stats">${t('today.moreStats')} ›</button></div>
-    ${legendHTML()}
+    ${kindSeg('chartKind')}
+    ${ui.chartKind === 'play' ? playLegendHTML() : legendHTML()}
     <div id="chart" class="chart chart-sm"></div>
   </section>
   <section class="card"><div class="card-head"><h2>${t('today.sessions')}</h2>
       <button class="btn btn-small" data-action="sess-new" data-date="${k}">＋ ${t('day.add')}</button></div>
     <ul class="sess-list">${list}</ul></section>
+  ${playListHTML(k)}
   <section class="card"><h2>${t('today.reflection')}</h2>
     <textarea data-reflect="${k}" rows="4" placeholder="${esc(t('today.reflectionPh'))}">${esc(D().reflections[k] || '')}</textarea></section>
   </div></div>`;
+}
+
+function kindSeg(field) {
+  const v = ui[field];
+  return `<div class="seg seg-small seg-kind"><button data-action="kind" data-f="${field}" data-k="study" class="${v === 'study' ? 'on' : ''}">${t('chart.kindStudy')}</button>
+    <button data-action="kind" data-f="${field}" data-k="play" class="${v === 'play' ? 'on' : ''}">${t('chart.kindPlay')}</button></div>`;
+}
+function playLegendHTML() {
+  return `<div class="legend">${visCats().map((c) => `<span class="lg"><span class="sw" style="background:${catVar(c)}"></span>${esc(catName(c))}</span>`).join('')}</div>`;
+}
+function playRowHTML(k) {
+  const run = D().playActive;
+  const mins = playMinutesOn(k);
+  const sub = run ? t('play.running') : mins ? t('play.today', { n: fmtMin(mins) }) : t('play.todayNone');
+  return `<button class="play-row ${run ? 'running' : ''}" data-action="${run ? 'play-expand' : 'play-open'}">
+    <span class="play-ic">🎮</span><span class="play-main"><b>${t('play.row')}</b><small>${esc(sub)}</small></span>
+    <span class="play-go">${run ? t('play.resume') : t('play.start')}</span></button>`;
+}
+function playRecRow(p) {
+  const c = catOf(p.cat);
+  const tag = Number.isFinite(p.guess) ? `<span class="pill">${t('play.guessTag', { g: fmtMin(p.guess) })}</span>` : '';
+  return `<li class="sess"><span class="sess-ic" style="--c:${catVar(c)}">${c.emoji}</span>
+    <div class="sess-main"><div class="sess-top"><b>${esc(catName(c))}</b><span class="muted">${timeOf(p.start)}</span>${tag}</div>
+    ${p.note ? `<div class="sess-note">${nl2br(p.note)}</div>` : ''}</div>
+    <span class="sess-min">${fmtMin(p.minutes)}</span>
+    <div class="row-acts"><button class="icon-btn danger" data-action="play-del" data-id="${p.id}" aria-label="${t('common.delete')}">🗑</button></div></li>`;
+}
+function playListHTML(k) {
+  const list = D().plays.filter((p) => p.date === k).sort((a, b) => a.start - b.start);
+  if (!list.length) return '';
+  return `<section class="card" id="play-list"><h2>${t('play.today.list')}</h2><ul class="sess-list">${list.map(playRecRow).join('')}</ul></section>`;
 }
 
 function sessionRow(s, editable = false) {
@@ -180,6 +223,7 @@ function sessionRow(s, editable = false) {
 
 // ---------- 统计 ----------
 function viewStats() {
+  if (ui.statsKind === 'play') return viewStatsPlay();
   const k = today();
   const res = streak();
   const st = S();
@@ -206,10 +250,7 @@ function viewStats() {
 
   return `
   <header class="page-head"><h1>${t('stats.title')}</h1></header>
-  <div class="seg">
-    <button class="${n === 7 ? 'on' : ''}" data-action="range" data-n="7">${t('stats.days7')}</button>
-    <button class="${n === 30 ? 'on' : ''}" data-action="range" data-n="30">${t('stats.days30')}</button>
-  </div>
+  ${statsBar(n)}
   <section class="tiles tiles-4">
     <div class="tile"><div class="tile-label">${t('stats.total')}</div><div class="tile-num">${fmtMin(total)}</div></div>
     <div class="tile"><div class="tile-label">${t('stats.avg')}</div><div class="tile-num">${fmtMin(total / n)}</div></div>
@@ -227,6 +268,101 @@ function viewStats() {
   <section class="card">${calendarHTML(res)}</section></div><div class="col">
   ${skillRows ? `<section class="card"><h2>${t('stats.bySkill')}</h2><ul class="sk-list">${skillRows}</ul></section>` : ''}
   </div></div>`;
+}
+
+function statsBar(n) {
+  return `<div class="stats-bar" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">${kindSeg('statsKind')}
+  <div class="seg">
+    <button class="${n === 7 ? 'on' : ''}" data-action="range" data-n="7">${t('stats.days7')}</button>
+    <button class="${n === 30 ? 'on' : ''}" data-action="range" data-n="30">${t('stats.days30')}</button>
+  </div></div>`;
+}
+
+// ---------- 统计：玩 ----------
+function viewStatsPlay() {
+  const k = today();
+  const n = ui.range;
+  const keys = lastNDays(k, n);
+  const tot = playTotalsByDay(D().plays);
+  let total = 0, days = 0, count = 0;
+  for (const d of keys) { const x = tot[d]; if (!x) continue; total += x.total; days++; count += x.count; }
+  const studyTotal = keys.reduce((a, d) => a + (streak().totals[d]?.total || 0), 0);
+  const maxv = Math.max(studyTotal, total, 1);
+  const table = keys.slice().reverse().map((d) => `<tr><td>${fmtDate(d)}</td><td>${Math.round(tot[d]?.total || 0)}</td></tr>`).join('');
+  return `
+  <header class="page-head"><h1>${t('stats.title')}</h1></header>
+  ${statsBar(n)}
+  <section class="tiles tiles-4">
+    <div class="tile"><div class="tile-label">${t('pstats.total')}</div><div class="tile-num">${fmtMin(total)}</div></div>
+    <div class="tile"><div class="tile-label">${t('pstats.avg')}</div><div class="tile-num">${fmtMin(total / n)}</div></div>
+    <div class="tile"><div class="tile-label">${t('pstats.days')}</div><div class="tile-num">${days}<small> / ${n}</small></div></div>
+    <div class="tile"><div class="tile-label">${t('pstats.per')}</div><div class="tile-num">${count ? fmtMin(total / count) : '–'}</div></div>
+  </section>
+  <section class="card">
+    <h2>${t('pstats.chartTitle')}</h2>
+    ${playLegendHTML()}
+    <div id="chart" class="chart"></div>
+    <p class="muted small">${t('pstats.chartNote')}</p>
+    <details class="table-wrap"><summary>${t('stats.table')}</summary>
+      <table><thead><tr><th>${t('stats.date')}</th><th>${t('stats.minutes')}</th></tr></thead><tbody>${table}</tbody></table></details>
+  </section>
+  <div class="split split-even"><div class="col">
+  <section class="card"><h2>${t('pstats.vs')}</h2>
+    <div class="vs-row"><span>${t('pstats.study')}</span><div class="vs-bar" style="width:${(studyTotal / maxv) * 60}%;background:var(--accent)"></div><b>${fmtMin(studyTotal)}</b></div>
+    <div class="vs-row"><span>${t('pstats.play')}</span><div class="vs-bar" style="width:${(total / maxv) * 60}%;background:var(--play-0)"></div><b>${fmtMin(total)}</b></div>
+    <p class="muted small">${t('pstats.vsNote')}</p></section></div><div class="col">
+  ${senseHTML()}
+  </div></div>`;
+}
+
+// ---------- 时间感小实验 ----------
+function senseHTML() {
+  const min = S().guessMinSessions;
+  const recs = guessed(D().plays);
+  const sum = senseSummary(D().plays, min);
+  let body;
+  if (!recs.length) body = `<p class="muted">${t('sense.none')}</p>`;
+  else {
+    const rows = recs.slice(-8);
+    const maxV = Math.max(...rows.flatMap((r) => [r.guess, r.minutes]));
+    const top = Math.max(90, Math.ceil(maxV / 30) * 30);
+    const x0 = 120, x1 = 740, px = (v) => x0 + (v / top) * (x1 - x0);
+    const rowH = 46, H = rows.length * rowH + 40;
+    let g = '';
+    for (let v = 0; v <= top; v += 30) g += `<line class="c-grid" x1="${px(v)}" x2="${px(v)}" y1="6" y2="${H - 30}"/><text class="s-axis" x="${px(v)}" y="${H - 10}" text-anchor="middle">${v}${v === top ? ' ' + t('sense.min') : ''}</text>`;
+    rows.forEach((r, i) => {
+      const y = 28 + i * rowH, c = catColor(r.cat), d = new Date(r.start);
+      g += `<text class="s-lab" x="0" y="${y + 4}">${d.getMonth() + 1}/${d.getDate()} ${esc(catName(catOf(r.cat)).slice(0, 4))}</text>`;
+      g += `<line x1="${px(r.guess)}" x2="${px(r.minutes)}" y1="${y}" y2="${y}" stroke="${c}" stroke-width="3" stroke-linecap="round" opacity=".45"/>`;
+      g += `<circle cx="${px(r.guess)}" cy="${y}" r="7" fill="var(--surface)" stroke="${c}" stroke-width="3"/>`;
+      g += `<circle cx="${px(r.minutes)}" cy="${y}" r="8" fill="${c}"/>`;
+      g += `<text class="s-val" x="${Math.max(px(r.guess), px(r.minutes)) + 14}" y="${y + 4}">${r.minutes}</text>`;
+    });
+    const dots = `<svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--play-0)" stroke-width="2"/></svg>`;
+    const dot2 = `<svg width="14" height="14"><circle cx="7" cy="7" r="6" fill="var(--play-0)"/></svg>`;
+    body = `<p class="muted small">${t('sense.intro')}</p>
+      <div class="legend"><span class="lg">${dots}${t('sense.lgGuess')}</span><span class="lg">${dot2}${t('sense.lgActual')}</span></div>
+      <div class="sense-wrap"><svg viewBox="0 0 760 ${H}" role="img" aria-label="${esc(t('sense.title'))}">${g}</svg></div>`;
+  }
+  let summary = '';
+  if (recs.length && sum.ready) {
+    const p = Math.round(Math.abs(sum.avg) * 100);
+    const less = sum.avg < -0.03, more = sum.avg > 0.03;
+    summary = `<div class="sense-sum"><b>${less ? t('sense.sumLess', { p }) : more ? t('sense.sumMore', { p }) : t('sense.sumEven')}</b>
+      <span class="muted small">${less ? t('sense.sumLessHint') : more ? t('sense.sumMoreHint') : ''}</span></div>`;
+  } else if (recs.length) summary = `<div class="sense-muted">${t('sense.need', { n: min - sum.n })}</div>`;
+  // 学习的猜测
+  let study = '';
+  if (S().studyGuess) {
+    const ss = senseSummary(D().sessions, 1);
+    if (ss.n) {
+      const p = Math.round(Math.abs(ss.avg) * 100);
+      const line = Math.abs(ss.avg) <= 0.03 ? t('sense.studyEvenLine', { n: ss.n })
+        : t('sense.studyLine', { n: ss.n, d: ss.avg < 0 ? t('sense.studyLess') : t('sense.studyMore'), p });
+      study = `<div class="sense-muted" style="color:var(--text-2)">${line}</div>`;
+    }
+  } else study = `<div class="sense-muted">🔒 ${t('sense.studyOff')}</div>`;
+  return `<section class="card"><h2>${t('sense.title')}</h2>${body}${summary}${study}</section>`;
 }
 
 function legendHTML() {
@@ -263,11 +399,12 @@ function calendarHTML(res) {
       <span><i class="dot missed"></i>${t('cal.missed')}</span><span><i class="dot rest"></i>${t('cal.rest')}</span></div>`;
 }
 
-function drawStatsChart() { drawChart(ui.range, 260); }
-function drawTodayChart() { drawChart(7, 210); }
-function drawChart(n, height) {
+function drawStatsChart() { drawChart(ui.range, 260, ui.statsKind); }
+function drawTodayChart() { drawChart(7, 210, ui.chartKind); }
+function drawChart(n, height, kind = 'study') {
   const el = $('#chart');
   if (!el) return;
+  if (kind === 'play') return drawPlayChart(el, n, height);
   const k = today();
   const res = streak();
   const rest = new Set(S().restDays);
@@ -291,6 +428,31 @@ function drawChart(n, height) {
     labels: { checkin: t('today.lineCheckin'), goal: t('today.lineGoal'), view: t('chart.viewDay') },
     height,
     fmt: fmtMin,
+  });
+}
+
+function drawPlayChart(el, n, height) {
+  const k = today();
+  const tot = playTotalsByDay(D().plays);
+  const rest = new Set(S().restDays);
+  const keys = lastNDays(k, n);
+  const days = keys.map((d) => {
+    const dt = keyToDate(d);
+    return {
+      key: d,
+      label: n <= 10 ? t('wdShort.' + dt.getDay()) : String(dt.getDate()),
+      sub: n <= 10 ? `${dt.getMonth() + 1}/${dt.getDate()}` : '',
+      total: tot[d]?.total || 0, bySkill: tot[d]?.byCat || {},
+      rest: rest.has(dt.getDay()), isToday: d === k, tip: fmtDate(d),
+    };
+  });
+  const sum = days.reduce((a, d) => a + d.total, 0);
+  drawBarChart(el, {
+    days,
+    skills: D().playCats.map((c) => ({ id: c.id, name: catName(c) })),
+    color: catColor, hideRefs: true, noView: true,
+    avg: sum ? { value: sum / n, label: t('pstats.avgLine', { n: Math.round(sum / n) }) } : null,
+    checkin: 0, goal: 0, labels: { view: '' }, height, fmt: fmtMin,
   });
 }
 
@@ -511,6 +673,15 @@ function viewSettings() {
       <label class="field">${t('set.goal')}<input type="number" inputmode="numeric" min="1" max="600" data-setting="goalMinutes" value="${st.goalMinutes}"></label>
     </div>
     <h3>${t('set.restDays')}</h3><div class="chips">${restChips}</div><p class="muted small">${t('set.restHint')}</p></section>
+  <section class="card"><div class="card-head"><h2>${t('set.play')} <span class="pill" style="background:var(--play-0);color:#fff">${t('set.new')}</span></h2></div>
+    <div class="sw-row"><div><b>${t('set.playHide')}</b><small>${t('set.playHideHint')}</small></div>
+      <button type="button" class="switch" role="switch" aria-checked="${!!st.playHideClock}" aria-label="${esc(t('set.playHide'))}" data-action="toggle" data-k="playHideClock"></button></div>
+    <div class="sw-row"><div><b>${t('set.studyGuess')}</b><small>${t('set.studyGuessHint')}</small></div>
+      <button type="button" class="switch" role="switch" aria-checked="${!!st.studyGuess}" aria-label="${esc(t('set.studyGuess'))}" data-action="toggle" data-k="studyGuess"></button></div>
+    <h3>${t('set.playCats')}</h3>
+    <div class="cat-chips">${D().playCats.map((c) => `<button class="cat-chip ${c.hidden ? 'is-hidden' : ''}" style="--c:${catVar(c)}" data-action="cat-edit" data-id="${c.id}"><span class="sw" style="background:${catVar(c)}"></span>${c.emoji} ${esc(catName(c))}</button>`).join('')}
+      <button class="cat-chip add" data-action="cat-new">＋ ${t('set.addCat')}</button></div>
+    <p class="muted small">${t('set.playNote')}</p></section>
   <section class="card"><div class="card-head"><h2>${t('set.subjects')}</h2>
     <button class="btn btn-small" data-action="subj-new">＋ ${t('set.addSubject')}</button></div>
     <ul class="subj-list">${subjects}</ul></section>
@@ -520,6 +691,17 @@ function viewSettings() {
       <button class="btn" data-action="import">📂 ${t('set.import')}</button></div></section>
   <section class="card"><h2>${t('set.about')}</h2>
     <p class="muted small">${t('appName')} · ${t('set.version', { v: APP_VERSION })}<br>${t('set.dictCredit')}</p></section>`;
+}
+
+function openCatForm(id) {
+  const c = id ? D().playCats.find((x) => x.id === id) : null;
+  openModal(`<div class="sheet-head"><h2>${c ? t('cat.edit') : t('cat.new')}</h2></div>
+    <label class="field">${t('subj.nameZh')}<input id="ct-zh" value="${esc(c?.name.zh || '')}"></label>
+    <label class="field">${t('subj.nameEn')}<input id="ct-en" value="${esc(c?.name.en || '')}"></label>
+    <label class="field">${t('subj.emoji')}<input id="ct-emoji" maxlength="4" value="${esc(c?.emoji || '🎲')}"></label>
+    ${c ? `<label class="field"><span><input type="checkbox" id="ct-hide" ${c.hidden ? 'checked' : ''}> ${t('cat.hide')}</span></label>` : ''}
+    <div class="sheet-actions"><button class="btn btn-ghost" data-action="modal-close">${t('common.cancel')}</button>
+      <button class="btn btn-primary" data-action="cat-save" data-id="${c ? c.id : ''}">${t('common.save')}</button></div>`);
 }
 
 function openSubjForm(id) {
@@ -568,6 +750,7 @@ async function doExport() {
 function renderTimer() {
   const a = D().active;
   const ov = $('#timer'), mini = $('#mini');
+  if (!a && D().playActive) return renderPlayTimer(ov, mini, D().playActive);
   if (!a) { ov.hidden = true; mini.hidden = true; document.body.classList.remove('timer-open'); return; }
   const sb = subj(a.subjectId);
   const paused = isPaused(a);
@@ -602,7 +785,119 @@ function renderTimer() {
   }
 }
 
+function renderPlayTimer(ov, mini, pa) {
+  const c = catOf(pa.cat);
+  const showClock = !S().playHideClock;
+  const clock = fmtClock(Date.now() - pa.start);
+  if (ui.timerOpen) {
+    mini.hidden = true;
+    ov.hidden = false;
+    document.body.classList.add('timer-open');
+    ov.className = 'is-play';
+    ov.style.setProperty('--c', catVar(c));
+    ov.innerHTML = `
+      <div class="t-top"><button class="btn btn-ghost btn-small" data-action="minimize">⌄ ${t('timer.minimize')}</button><span></span></div>
+      <div class="t-center">
+        <div class="play-orb">${c.emoji}</div>
+        <div class="t-subj">${esc(catName(c))}</div>
+        <div class="t-state">● ${t('play.running')}</div>
+        ${showClock ? `<div class="t-clock" data-clock>${clock}</div>`
+          : `<div class="play-calm">${t('play.calm1')}<br>${t('play.calm2')}<br>${t('play.calm3')}</div>`}
+      </div>
+      <div class="t-btns"><button class="t-btn t-end" data-action="play-end">■ ${t('timer.end')}</button></div>
+      <button class="link-btn t-discard" data-action="play-discard">${t('timer.discard')}</button>`;
+  } else {
+    ov.hidden = true;
+    document.body.classList.remove('timer-open');
+    mini.hidden = false;
+    mini.innerHTML = `<button class="mini-bar is-play" data-action="expand">
+      <span>${c.emoji} ${esc(catName(c))}</span>${showClock ? `<b data-clock>${clock}</b>` : ''}<span>●</span></button>`;
+  }
+}
+
+function openPlayPick() {
+  if (D().active) return toast(t('play.busyStudy'), 3000);
+  openModal(`<div class="sheet-head"><h2>${t('play.pickTitle')}</h2><button class="icon-btn" data-action="modal-close" aria-label="${t('common.close')}">✕</button></div>
+    <p class="muted">${t('play.pickHint')}</p>
+    <div class="play-pick">${visCats().map((c) => `<button style="--c:${catVar(c)}" data-action="play-pick" data-id="${c.id}">
+      <span class="pick-emoji">${c.emoji}</span><span class="lbl"><span class="sw" style="background:${catVar(c)}"></span>${esc(catName(c))}</span></button>`).join('')}</div>
+    <div class="play-note"><span>ⓘ</span><span>${t('play.pickNote')}</span></div>`);
+}
+
+function startPlay(catId) {
+  D().playActive = { cat: catId, start: Date.now() };
+  save();
+  closeModal();
+  ui.timerOpen = true;
+  render();
+}
+
+function endPlay() {
+  const pa = D().playActive;
+  if (!pa) return;
+  const end = Date.now();
+  const minutes = Math.round((end - pa.start) / 60000);
+  D().playActive = null;
+  ui.timerOpen = true;
+  if (minutes < S().minSessionMinutes) { save(); closeModal(); render(); toast(t('play.tooShort')); return; }
+  const rec = { id: uid(), cat: pa.cat, date: dayKey(pa.start), start: pa.start, end, minutes, guess: null, note: '' };
+  D().plays.push(rec);
+  save(); // 先保存，防止猜的过程中关掉 App 丢记录
+  render();
+  openGuess({ rec, kind: 'play' });
+}
+
+// ---------- 猜一猜 → 揭晓 ----------
+const GUESS_CHIPS = [15, 30, 45, 60, 90, 120];
+function openGuess(ctx) {
+  ui.guess = { ...ctx, value: 30 };
+  const isStudy = ctx.kind === 'study';
+  const label = isStudy ? `${subj(ctx.rec.subjectId).emoji} ${esc(sName(subj(ctx.rec.subjectId)))}` : `${catOf(ctx.rec.cat).emoji} ${esc(catName(catOf(ctx.rec.cat)))}`;
+  openModal(`<div class="guess-sheet">
+    <div class="guess-cat">${label}</div>
+    <h2>${t(isStudy ? 'guess.titleStudy' : 'guess.title')}</h2>
+    <div class="muted">${t('guess.hint')}</div>
+    <div class="guess-row">
+      <button class="guess-step" data-action="g-step" data-d="-5" aria-label="-5">−5</button>
+      <div class="guess-num"><b id="g-val">30</b><small>${t('guess.minUnit')}</small></div>
+      <button class="guess-step" data-action="g-step" data-d="5" aria-label="+5">+5</button>
+    </div>
+    <div class="guess-chips">${GUESS_CHIPS.map((v) => `<button data-action="g-chip" data-v="${v}">${v}</button>`).join('')}</div>
+    <button class="btn btn-play" data-action="g-reveal">${t('guess.reveal')}</button>
+    <button class="link-btn guess-skip" data-action="g-skip">${t('guess.skip')}</button></div>`);
+}
+function setGuess(v) {
+  ui.guess.value = Math.min(600, Math.max(1, v));
+  const el = $('#g-val');
+  if (el) el.textContent = ui.guess.value;
+}
+
+function openReveal(ctx, guess) {
+  const rec = ctx.rec, actual = rec.minutes;
+  if (guess != null) { rec.guess = guess; save(); }
+  const isStudy = ctx.kind === 'study';
+  const max = Math.max(guess || 0, actual, 30);
+  const diff = guess == null ? 0 : actual - guess;
+  const msg = guess == null ? '' : Math.abs(diff) <= 2 ? t('reveal.exact') : diff > 0 ? t('reveal.more', { n: diff }) : t('reveal.less', { n: -diff });
+  const sum = senseSummary(isStudy ? D().sessions : D().plays, S().guessMinSessions, 5);
+  let trend = '';
+  if (guess != null && sum.ready) {
+    const p = Math.round(Math.abs(sum.avg) * 100);
+    const key = Math.abs(sum.avg) <= 0.03 ? 'reveal.trendEven' : sum.avg < 0 ? 'reveal.trendLess' : 'reveal.trendMore';
+    trend = `<div class="rev-trend"><span>📈</span><span>${t(key, { n: sum.n, p })}</span></div>`;
+  }
+  const bars = `<div class="rev-bars">
+    ${guess != null ? `<div><div class="rev-line"><span>${t('reveal.guess')}</span><b>${fmtMin(guess)}</b></div><div class="rev-bar guess" style="width:${(guess / max) * 100}%"></div></div>` : ''}
+    <div><div class="rev-line"><span>${t('reveal.actual')}</span><b>${fmtMin(actual)}</b></div><div class="rev-bar actual" style="width:${(actual / max) * 100}%"></div></div></div>`;
+  ui.guess = ctx;
+  openModal(`<div class="sheet-head"><h2>${t('reveal.title')}</h2></div>${bars}
+    ${msg ? `<div class="rev-msg">${msg}</div>` : ''}${trend}
+    ${isStudy ? '' : `<label class="field" style="margin-top:14px">${t('reveal.notePh')}<input type="text" id="rev-note" class="rev-note" placeholder="${esc(t('reveal.noteEg'))}"></label>`}
+    <div class="sheet-actions"><button class="btn btn-play" style="width:auto;padding:14px 32px" data-action="rev-done">${t(isStudy ? 'reveal.savedStudy' : 'reveal.done')}</button></div>`);
+}
+
 function startSession(subjectId) {
+  if (D().playActive) return toast(t('play.busyPlay'), 3000);
   D().active = { subjectId, start: Date.now(), pauses: [] };
   save();
   closeModal();
@@ -633,6 +928,11 @@ function endSession() {
   save(); // 先保存，防止填写过程中关掉 App 丢记录
   ui.pending = { sessionId: s.id, subjectId: s.subjectId, date, before, words: [] };
   render();
+  if (S().studyGuess) openGuess({ rec: s, kind: 'study', next: () => openSummary(s, minutes) });
+  else openSummary(s, minutes);
+}
+
+function openSummary(s, minutes) {
   const sb = subj(s.subjectId);
   openModal(`
     <div class="sheet-head"><h2>${sb.emoji} ${esc(sName(sb))}</h2></div>
@@ -675,6 +975,10 @@ function celebrate(date, before) {
 function tick() {
   const a = D().active;
   const now = Date.now();
+  if (!a && D().playActive) {
+    const txt = fmtClock(now - D().playActive.start);
+    document.querySelectorAll('[data-clock]').forEach((el) => (el.textContent = txt));
+  }
   if (a) {
     const txt = fmtClock(activeNetMs(a, now));
     document.querySelectorAll('[data-clock]').forEach((el) => (el.textContent = txt));
@@ -714,7 +1018,7 @@ function openPicker() {
 // ============================================================
 const ACTIONS = {
   tab: (el) => { ui.tab = el.dataset.tab; ui.dayOpen = null; closeModal(); window.scrollTo(0, 0); render(); },
-  start: () => openPicker(),
+  start: () => (D().playActive ? toast(t('play.busyPlay'), 3000) : openPicker()),
   pick: (el) => startSession(el.dataset.id),
   pause: () => { const a = D().active; if (a && !isPaused(a)) { a.pauses.push({ start: Date.now(), end: null }); save(); renderTimer(); } },
   resume: () => { const a = D().active; const p = a?.pauses[a.pauses.length - 1]; if (p && p.end == null) { p.end = Date.now(); save(); renderTimer(); } },
@@ -722,6 +1026,33 @@ const ACTIONS = {
   minimize: () => { ui.timerOpen = false; renderTimer(); },
   expand: () => { ui.timerOpen = true; renderTimer(); },
   discard: () => ask(t('timer.discardConfirm'), () => { closeModal(); D().active = null; save(); render(); }),
+  kind: (el) => { ui[el.dataset.f] = el.dataset.k; render(); },
+  'play-open': () => openPlayPick(),
+  'play-expand': () => { ui.timerOpen = true; renderTimer(); },
+  'play-pick': (el) => startPlay(el.dataset.id),
+  'play-end': () => endPlay(),
+  'play-discard': () => ask(t('timer.discardConfirm'), () => { closeModal(); D().playActive = null; save(); render(); }),
+  'play-del': (el) => ask(t('play.deleteConfirm'), () => { D().plays = D().plays.filter((p) => p.id !== el.dataset.id); save(); render(); }),
+  'g-step': (el) => setGuess(ui.guess.value + +el.dataset.d),
+  'g-chip': (el) => setGuess(+el.dataset.v),
+  'g-reveal': () => { const c = ui.guess; closeModal(); openReveal(c, c.value); },
+  'g-skip': () => { const c = ui.guess; closeModal(); openReveal(c, null); },
+  'rev-done': () => {
+    const c = ui.guess;
+    if (c.kind === 'play') { c.rec.note = ($('#rev-note')?.value || '').trim(); save(); closeModal(); ui.guess = null; render(); }
+    else { closeModal(); ui.guess = null; c.next?.(); }
+  },
+  toggle: (el) => { S()[el.dataset.k] = !S()[el.dataset.k]; save(); render(); },
+  'cat-edit': (el) => openCatForm(el.dataset.id),
+  'cat-new': () => openCatForm(null),
+  'cat-save': (el) => {
+    const zh = $('#ct-zh').value.trim(), en = $('#ct-en').value.trim();
+    if (!zh && !en) { toast(t('subj.needName')); return; }
+    const fields = { name: { zh: zh || en, en: en || zh }, emoji: $('#ct-emoji').value.trim() || '🎲' };
+    if (el.dataset.id) Object.assign(D().playCats.find((x) => x.id === el.dataset.id), fields, { hidden: $('#ct-hide')?.checked || false });
+    else D().playCats.push({ id: 'c_' + uid(), ci: Math.max(-1, ...D().playCats.map((x) => x.ci ?? 0)) + 1, ...fields });
+    save(); closeModal(); render();
+  },
   'confirm-yes': () => { const c = ui.confirm; ui.confirm = null; closeModal(); c?.onYes?.(); },
   'confirm-no': () => { const c = ui.confirm; ui.confirm = null; closeModal(); c?.onNo?.(); },
   'timer-word': () => openWordAdd(),
@@ -913,8 +1244,24 @@ ui.lastDay = today();
 render();
 setInterval(tick, 1000);
 
+// ---------- 自动检查更新 ----------
+// 每次回到前台都问一下服务器有没有新版本；装好新版后，底部弹出“点此更新”（不打断计时，数据都存着）。
+function showUpdateBar() {
+  if ($('#update-bar')) return;
+  const b = document.createElement('button');
+  b.id = 'update-bar';
+  b.textContent = t('update.ready');
+  b.addEventListener('click', () => location.reload());
+  document.body.appendChild(b);
+}
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW failed', e));
+  const hadController = !!navigator.serviceWorker.controller; // 第一次安装不提示
+  navigator.serviceWorker.register('sw.js').then((reg) => {
+    const check = () => reg.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+    setInterval(check, 60 * 60 * 1000);
+  }).catch((e) => console.warn('SW failed', e));
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) showUpdateBar(); });
 }
 
 // 测试/调试用

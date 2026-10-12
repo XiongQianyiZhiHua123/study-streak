@@ -131,3 +131,34 @@ export function guessLemmas(w) {
   if (w.endsWith('ly')) c.push(w.slice(0, -2));
   return c.filter((x) => x.length > 1);
 }
+
+// ---------------- 玩（时间感练习）----------------
+// plays: [{id, cat, date, start, end, minutes, guess|null, note}]  — 与学习记录分开，不参与打卡/连续天数。
+
+/** 每天玩的总分钟数和按类别分布 */
+export function playTotalsByDay(plays) {
+  const out = {};
+  for (const p of plays) {
+    const d = (out[p.date] ||= { total: 0, byCat: {}, count: 0 });
+    d.total += p.minutes;
+    d.count += 1;
+    d.byCat[p.cat] = (d.byCat[p.cat] || 0) + p.minutes;
+  }
+  return out;
+}
+
+/** 估计偏差：(猜 − 实际) / 实际。负数 = 少估（觉得比实际短） */
+export const guessBias = (guess, actual) => (actual > 0 ? (guess - actual) / actual : 0);
+
+/** 有猜测的记录（旧→新） */
+export function guessed(recs) {
+  return recs.filter((r) => Number.isFinite(r.guess) && r.guess > 0 && r.minutes > 0).sort((a, b) => a.start - b.start);
+}
+
+/** 汇总：次数 + 平均偏差（取最近 last 次，默认全部）。n < minN 时 ready=false，界面先不下结论。 */
+export function senseSummary(recs, minN = 5, last = Infinity) {
+  const g = guessed(recs).slice(-last);
+  const n = g.length;
+  const avg = n ? g.reduce((a, r) => a + guessBias(r.guess, r.minutes), 0) / n : 0;
+  return { n, avg, ready: n >= minN };
+}
